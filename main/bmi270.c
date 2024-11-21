@@ -624,20 +624,50 @@ void internal_status(void) {
 }
 
 void lectura(void) {
+    // tmp: variable temporal donde se guarda la lectura del BMI. 
+    // OJO son 8 bits de lectura
+    // reg_intstatus: sensor status flags (Datasheet)
     uint8_t reg_intstatus = 0x03, tmp;
+
+    // Memdir donde alojan datos de aceleración en x, y, z
+    uint8_t addr_acc_x_lsb = 0x0C;
+    uint8_t addr_acc_x_msb = 0x0D;
+    uint8_t addr_acc_y_lsb = 0x0E;
+    uint8_t addr_acc_y_msb = 0x0F;
     uint8_t addr_acc_z_lsb = 0x10;
     uint8_t addr_acc_z_msb = 0x11;
+
+    // Variables a almacenar el dato crudo de la aceleración
+    uint16_t acc_x;
+    uint16_t acc_y;
     uint16_t acc_z;
 
     while (1) {
+        // Se hace la lectura del status del sensor (reg_intstatus)
+        // bit 7 en 1 significa DATA READY FOR ACCELEROMETER. Se resetea
+        // cuando un dato del acelerómetro es read out
         bmi_read(&reg_intstatus, &tmp, 1);
-        if ((tmp & 0b10000000) == 0x80) {
+
+        if ((tmp & 0b10000000) == 0b10000000) {
+            // DATA READY FOR ACCELEROMETER
+            ret = bmi_read(&addr_acc_x_msb, &tmp, 1);
+            acc_x = tmp;
+            ret = bmi_read(&addr_acc_x_lsb, &tmp, 1);
+            acc_x = (acc_x << 8) | tmp;
+
+            ret = bmi_read(&addr_acc_y_msb, &tmp, 1);
+            acc_y = tmp;
+            ret = bmi_read(&addr_acc_y_lsb, &tmp, 1);
+            acc_y = (acc_y << 8) | tmp;
+
             ret = bmi_read(&addr_acc_z_msb, &tmp, 1);
             acc_z = tmp;
             ret = bmi_read(&addr_acc_z_lsb, &tmp, 1);
             acc_z = (acc_z << 8) | tmp;
 
-            printf("acc_z: %f g\n", (int16_t)acc_z * (8.000 / 32768));
+            printf("acc_x: %f g\n", (int16_t)acc_x * (8.000 / 32768));
+            printf("acc_y: %f g\n", (int16_t)acc_y * (8.000 / 32768));
+            printf("acc_z: %f g\n\n", (int16_t)acc_z * (8.000 / 32768));
 
             if (ret != ESP_OK) {
                 printf("Error lectura: %s \n", esp_err_to_name(ret));
