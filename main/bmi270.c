@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <time.h>
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -7,6 +9,9 @@
 #include "esp_task.h"
 #include "math.h"
 #include "sdkconfig.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/uart.h"
 
 #define I2C_MASTER_SCL_IO GPIO_NUM_22  // GPIO pin
 #define I2C_MASTER_SDA_IO GPIO_NUM_21  // GPIO pin
@@ -19,11 +24,85 @@
 #define ACK_VAL 0x0
 #define NACK_VAL 0x1
 #define Fodr 800
+#define BUF_SIZE (128) // buffer size
+#define TXD_PIN 1  // UART TX pin
+#define RXD_PIN 3  // UART RX pin
+#define UART_NUM UART_NUM_0   // UART port number
+#define BAUD_RATE 115200   // Baud rate
+#define REDIRECT_LOGS 1 // if redirect ESP log to another UART
+
+// Tamaño ventana
+int window_size = 5;
+
+// Estructura donde serán almacenados los datos.
+typedef struct {
+    uint16_t *acc_x;
+    uint16_t *acc_y;
+    uint16_t *acc_z;
+
+    uint16_t *gyr_x;
+    uint16_t *gyr_y;
+    uint16_t *gyr_z;
+} SensorData;
 
 esp_err_t ret = ESP_OK;
 esp_err_t ret2 = ESP_OK;
 
 uint16_t val0[6];
+
+// -------------------- UART ------------------------//
+// Function for sending things to UART1
+static int uart1_printf(const char *str, va_list ap) {
+    char *buf;
+    vasprintf(&buf, str, ap);
+    uart_write_bytes(UART_NUM_1, buf, strlen(buf));
+    free(buf);
+    return 0;
+}
+
+// Setup of UART connections 0 and 1, and try to redirect logs to UART1 if asked
+static void uart_setup() {
+    uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+    };
+
+    uart_param_config(UART_NUM_0, &uart_config);
+    uart_param_config(UART_NUM_1, &uart_config);
+    uart_driver_install(UART_NUM_0, BUF_SIZE * 2, 0, 0, NULL, 0);
+    uart_driver_install(UART_NUM_1, BUF_SIZE * 2, 0, 0, NULL, 0);
+
+    // Redirect ESP log to UART1
+    if (REDIRECT_LOGS) {
+        esp_log_set_vprintf(uart1_printf);
+    }
+}
+
+// Write message through UART_num with an \0 at the end
+// int serial_write(const char *msg, int len){
+
+//     char *send_with_end = (char *)malloc(sizeof(char) * (len + 1));
+//     memcpy(send_with_end, msg, len);
+//     send_with_end[len] = '\0';
+
+//     int result = uart_write_bytes(UART_NUM, send_with_end, len+1);
+
+//     free(send_with_end);
+
+//     vTaskDelay(pdMS_TO_TICKS(1000));  // Delay for 1 second
+//     return result;
+// }
+
+// Read UART_num for input with timeout of 1 sec
+int serial_read(char *buffer, int size){
+    int len = uart_read_bytes(UART_NUM, (uint8_t*)buffer, size, pdMS_TO_TICKS(1000));
+    return len;
+}
+
+// -------------------- NVS ------------------------//
 
 /*! @name  Global array that stores the configuration file of BMI270 */
 const uint8_t bmi270_config_file[] = {
@@ -462,6 +541,10 @@ const uint8_t bmi270_config_file[] = {
 
 i2c_master_dev_handle_t device;
 
+// Hace que el ESP reciba datos del sensor 
+// mediante comunicación I2C. Se le pasa como parámetro
+// la dirección de memoria donde hay que ir a buscar la
+// información
 esp_err_t bmi_read(uint8_t *data_address, uint8_t *data_rd, size_t size) {
     if (size == 0) {
         return ESP_OK;
@@ -623,12 +706,46 @@ void internal_status(void) {
     printf("Internal Status: %2X\n\n", tmp);
 }
 
-void lectura(void) {
+// Función que crea una estructura que guarda los datos tomados del sensor
+SensorData* createSensorData(size_t window_size) {
+    SensorData* sd = (SensorData*)malloc(sizeof(SensorData));
+
+    // Asignar memoria para cada eje
+    sd->acc_x = (uint16_t*)malloc(window_size * sizeof(uint16_t));
+    sd->acc_y = (uint16_t*)malloc(window_size * sizeof(uint16_t));
+    sd->acc_z = (uint16_t*)malloc(window_size * sizeof(uint16_t));
+
+    sd->gyr_x = (uint16_t*)malloc(window_size * sizeof(uint16_t));
+    sd->gyr_y = (uint16_t*)malloc(window_size * sizeof(uint16_t));
+    sd->gyr_z = (uint16_t*)malloc(window_size * sizeof(uint16_t));
+
+    return sd;
+}
+
+// Libera la memoria pedida por la estructura
+void freeSensorData(SensorData* sd) {
+    printf("entra a freeSensorData\n");
+    free(sd->acc_x);
+    free(sd->acc_y);
+    free(sd->acc_z);
+
+    free(sd->gyr_x);
+    free(sd->gyr_y);
+    free(sd->gyr_z);
+
+    free(sd);
+    printf("libera correctamente\n");
+}
+
+// Realiza l lecturas de aceleración y giroscopio,
+// en los ejes x, y, z
+void lecture(SensorData *sd, int l) {
     // tmp: variable temporal donde se guarda la lectura del BMI. 
     // OJO son 8 bits de lectura
     // reg_intstatus: sensor status flags (Datasheet)
     uint8_t reg_intstatus = 0x03, tmp;
 
+    // ACELERACIÓN
     // Memdir donde alojan datos de aceleración en x, y, z
     uint8_t addr_acc_x_lsb = 0x0C;
     uint8_t addr_acc_x_msb = 0x0D;
@@ -637,14 +754,28 @@ void lectura(void) {
     uint8_t addr_acc_z_lsb = 0x10;
     uint8_t addr_acc_z_msb = 0x11;
 
-    // Variables a almacenar el dato crudo de la aceleración
+    // Variables a almacenar el dato crudo aceleración
     uint16_t acc_x;
     uint16_t acc_y;
     uint16_t acc_z;
 
-    while (1) {
-        // Se hace la lectura del status del sensor (reg_intstatus)
-        // bit 7 en 1 significa DATA READY FOR ACCELEROMETER. Se resetea
+    // GIROSCOPIO
+    // Memdir donde alojan datos de giroscopio en x, y, z
+    uint8_t addr_gyr_x_lsb = 0x12;
+    uint8_t addr_gyr_x_msb = 0x13;
+    uint8_t addr_gyr_y_lsb = 0x14;
+    uint8_t addr_gyr_y_msb = 0x15;
+    uint8_t addr_gyr_z_lsb = 0x16;
+    uint8_t addr_gyr_z_msb = 0x17;
+
+    // Variables a almacenar el dato crudo giroscopio
+    uint16_t gyr_x;
+    uint16_t gyr_y;
+    uint16_t gyr_z;
+
+    for (int i=0; i<l; i++) {
+        printf("iteración %d\n", i+1);
+
         // cuando un dato del acelerómetro es read out
         bmi_read(&reg_intstatus, &tmp, 1);
 
@@ -669,17 +800,85 @@ void lectura(void) {
             printf("acc_y: %f g\n", (int16_t)acc_y * (8.000 / 32768));
             printf("acc_z: %f g\n\n", (int16_t)acc_z * (8.000 / 32768));
 
+            sd->acc_x[i] = acc_x;
+            sd->acc_y[i] = acc_y;
+            sd->acc_z[i] = acc_z;
+        
             if (ret != ESP_OK) {
                 printf("Error lectura: %s \n", esp_err_to_name(ret));
+            }
+        }
+
+        // Lo mismo que arriba, solo que ahora para el giroscopio
+        // su bit READY es el bit 6
+        bmi_read(&reg_intstatus, &tmp, 1);
+
+        if ((tmp & 0b01000000) == 0b01000000) {
+            // DATA READY FOR GYROSCOPE
+            ret = bmi_read(&addr_gyr_x_msb, &tmp, 1);
+            gyr_x = tmp;
+            ret = bmi_read(&addr_gyr_x_lsb, &tmp, 1);
+            gyr_x = (gyr_x << 8) | tmp;
+
+            ret = bmi_read(&addr_gyr_y_msb, &tmp, 1);
+            gyr_y = tmp;
+            ret = bmi_read(&addr_gyr_y_lsb, &tmp, 1);
+            gyr_y = (gyr_y << 8) | tmp;
+
+            ret = bmi_read(&addr_gyr_z_msb, &tmp, 1);
+            gyr_z = tmp;
+            ret = bmi_read(&addr_gyr_z_lsb, &tmp, 1);
+            gyr_z = (gyr_z << 8) | tmp;
+
+            printf("gyr_x: %d \n", gyr_x);
+            printf("gyr_y: %d \n", gyr_y);
+            printf("gyr_z: %d \n\n", gyr_z);
+
+            // printf("justo después de imprimir giroscopio iteración %d\n", i+1);
+
+            sd->gyr_x[i] = gyr_x;
+            sd->gyr_y[i] = gyr_y;
+            sd->gyr_z[i] = gyr_z;
+
+            // printf("justo después de asignar variables en la memoria it %d\n", i+1);
+            
+            if (ret != ESP_OK) {
+                printf("Error lectura: %s \n", esp_err_to_name(ret));
+            }
+
+            // printf("justo después de chequear si hay error de lectura\n");
+        }
+    }
+
+    // printf("antes de retornar\n");
+    return;
+}
+
+// Se queda esperando por una respuesta y decide
+// en base a la respuesta
+void wait_response(void) {
+    // Waiting for an BEGIN to initialize data sending
+    char dataResponse[6];
+    printf("Beginning initialization... \n");
+    while (1) {
+        int rLen = serial_read(dataResponse, 6);
+        if (rLen > 0) {
+            if (strcmp(dataResponse, "BEGIN") == 0) {
+                break;
             }
         }
     }
 }
 
+// Envía la data por UART al PC
+void send_data_UART(void) {
+    // En desarrollo
+}
+
 void bmipowermode(void) {
     // PWR_CTRL: disable auxiliary sensor, gryo and temp; acc on
     // 400Hz en datos acc, filter: performance optimized, acc_range +/-8g (1g = 9.80665 m/s2, alcance max: 78.4532 m/s2, 16 bit= 65536 => 1bit = 78.4532/32768 m/s2)
-    uint8_t reg_pwr_ctrl = 0x7D, val_pwr_ctrl = 0x04;
+    uint8_t reg_pwr_ctrl = 0x7D, val_pwr_ctrl = 0x06; // se cambió de 0x04 a 0x06
     uint8_t reg_acc_conf = 0x40, val_acc_conf;
     uint8_t reg_pwr_conf = 0x7C, val_pwr_conf = 0x00;
 
@@ -705,6 +904,8 @@ void bmipowermode(void) {
 }
 
 void app_main(void) {
+
+    // Rutinario
     ESP_ERROR_CHECK(bmi_init());
     softreset();
     chipid();
@@ -712,6 +913,15 @@ void app_main(void) {
     check_initialization();
     bmipowermode();
     internal_status();
+    uart_setup();
+    // Rutinario
+
     printf("Comienza lectura\n\n");
-    lectura();
+    SensorData* sd = createSensorData(window_size);
+    lecture(sd, window_size);
+    printf("sale de la función lecture\n");
+    
+    // Se libera memoria
+    freeSensorData(sd);
+    printf("sale de freeSensorData\n");
 }
