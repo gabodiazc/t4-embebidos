@@ -800,6 +800,7 @@ void lecture(SensorData *sd, int l) {
             printf("acc_y: %f g\n", (int16_t)acc_y * (8.000 / 32768));
             printf("acc_z: %f g\n\n", (int16_t)acc_z * (8.000 / 32768));
 
+            // TODO: acá se guarda el valor bruto y no el valor printeado
             sd->acc_x[i] = acc_x;
             sd->acc_y[i] = acc_y;
             sd->acc_z[i] = acc_z;
@@ -830,6 +831,7 @@ void lecture(SensorData *sd, int l) {
             ret = bmi_read(&addr_gyr_z_lsb, &tmp, 1);
             gyr_z = (gyr_z << 8) | tmp;
 
+            // TODO: hay que dejar bien la unidad de medida
             printf("gyr_x: %d \n", gyr_x);
             printf("gyr_y: %d \n", gyr_y);
             printf("gyr_z: %d \n\n", gyr_z);
@@ -854,18 +856,27 @@ void lecture(SensorData *sd, int l) {
     return;
 }
 
-// Se queda esperando por una respuesta y decide
-// en base a la respuesta
-void wait_response(void) {
-    // Waiting for an BEGIN to initialize data sending
-    char dataResponse[6];
+// Se queda esperando por una respuesta y retorna
+// en base a la respuesta que obtuvo:
+// Retorna 1 para tomar lecturas con la ventana actual y enviar datos
+// Retorna 2 para cambiar la ventana
+// Retorna 3 para cerrar la conexión
+// Retorna 4 para enviar el tamaño actual de la ventana
+int wait_response(void) {
+    // Waiting for an BEGIN0, BEGIN1, or BEGIN2 to initialize data sending
+    char dataResponse[7];
     printf("Beginning initialization... \n");
     while (1) {
-        int rLen = serial_read(dataResponse, 6);
+        int rLen = serial_read(dataResponse, 7);
         if (rLen > 0) {
-            if (strcmp(dataResponse, "BEGIN") == 0) {
-                break;
-            }
+            if (strcmp(dataResponse, "BEGIN1") == 0) 
+                return 1;
+            if (strcmp(dataResponse, "BEGIN2") == 0)
+                return 2;
+            if (strcmp(dataResponse, "BEGIN3") == 0)
+                return 3;
+            if (strcmp(dataResponse, "BEGIN4") == 0)
+                return 4;
         }
     }
 }
@@ -915,6 +926,11 @@ void app_main(void) {
     internal_status();
     uart_setup();
     // Rutinario
+
+    // Espera respuesta
+    printf("espera respuesta del PC\n");
+    int r = wait_response();
+    printf("La respuesta del PC fue %d\n", r);
 
     printf("Comienza lectura\n\n");
     SensorData* sd = createSensorData(window_size);
