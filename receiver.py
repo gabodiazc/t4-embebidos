@@ -9,6 +9,8 @@ BAUD_RATE = 115200  # Debe coincidir con la configuracion de la ESP32
 # Se abre la conexion serial
 try:
     ser = serial.Serial(PORT, BAUD_RATE, timeout=1)
+    # ser.reset_input_buffer()  # Limpia el buffer de entrada
+    # ser.reset_output_buffer()  # Limpia el buffer de salida
     print(f"Puerto {PORT} abierto correctamente.")
 except serial.SerialException as e:
     print(f"No se pudo abrir el puerto {PORT}: {e}")
@@ -21,14 +23,14 @@ def send_message(message):
 
 def receive_response():
     """ Funcion para recibir un mensaje de la ESP32 """
-    response = ser.readline()
+    response = ser.read_all()
     return response
 
 def receive_data():
     """ Funcion que recibe varios floats de la ESP32 
     y los imprime en consola """
     data = receive_response()
-    data = unpack("fff", data)
+    data = unpack("ffffff", data[1:])
 
     # print(f'Received gyr_x: {data[3]}')
     # print(f'Received gyr_y: {data[4]}')
@@ -39,6 +41,15 @@ def send_end_message():
     """ Funcion para enviar un mensaje de finalizacion a la ESP32 """
     end_message = pack('4s', 'END\0'.encode())
     ser.write(end_message)
+
+def wait_for_OK():
+    while True:
+        try:
+            message = ser.readline().decode("utf-8")
+            if message == "OK\n":
+                break
+        except:
+            print("except clause wait_for_ok")
 
 # # Se lee data por la conexion serial
 counter = 0
@@ -58,7 +69,11 @@ while True:
             # Envía mensaje de 'quiero esta opción'
             message = pack('7s','BEGIN1\0'.encode())
             send_message(message)
-            # time.sleep(1)
+            
+            wait_for_OK()
+            print("OK recibido!")
+
+            time.sleep(2)
 
             while True:
                 # Pasa a recibir datos
@@ -69,12 +84,12 @@ while True:
                         print('Error en leer mensaje')
                         continue
                     else:
-                        print(f'Received acc_x: {message[0]}')
-                        print(f'Received acc_y: {message[1]}')
-                        print(f'Received acc_z: {message[2]}')
-                        print()
+                        print(len(message))
+                        for i in range(0, len(message)):
+
+                            print(float(message[i]))
                         counter += 1
-                        print(counter)
+                        # print(counter)
                     finally:
                         if counter == 1:
                             print('Lecturas listas!')

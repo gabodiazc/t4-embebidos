@@ -36,13 +36,13 @@ int window_size = 5;
 
 // Estructura donde serán almacenados los datos.
 typedef struct {
-    uint16_t *acc_x;
-    uint16_t *acc_y;
-    uint16_t *acc_z;
+    float *acc_x;
+    float *acc_y;
+    float *acc_z;
 
-    uint16_t *gyr_x;
-    uint16_t *gyr_y;
-    uint16_t *gyr_z;
+    float *gyr_x;
+    float *gyr_y;
+    float *gyr_z;
 } SensorData;
 
 esp_err_t ret = ESP_OK;
@@ -711,20 +711,20 @@ SensorData* createSensorData(size_t window_size) {
     SensorData* sd = (SensorData*)malloc(sizeof(SensorData));
 
     // Asignar memoria para cada eje
-    sd->acc_x = (uint16_t*)malloc(window_size * sizeof(uint16_t));
-    sd->acc_y = (uint16_t*)malloc(window_size * sizeof(uint16_t));
-    sd->acc_z = (uint16_t*)malloc(window_size * sizeof(uint16_t));
+    sd->acc_x = (float*)malloc(window_size * sizeof(float));
+    sd->acc_y = (float*)malloc(window_size * sizeof(float));
+    sd->acc_z = (float*)malloc(window_size * sizeof(float));
 
-    sd->gyr_x = (uint16_t*)malloc(window_size * sizeof(uint16_t));
-    sd->gyr_y = (uint16_t*)malloc(window_size * sizeof(uint16_t));
-    sd->gyr_z = (uint16_t*)malloc(window_size * sizeof(uint16_t));
+    sd->gyr_x = (float*)malloc(window_size * sizeof(float));
+    sd->gyr_y = (float*)malloc(window_size * sizeof(float));
+    sd->gyr_z = (float*)malloc(window_size * sizeof(float));
 
     return sd;
 }
 
 // Libera la memoria pedida por la estructura
 void freeSensorData(SensorData* sd) {
-    printf("entra a freeSensorData\n");
+    // printf("entra a freeSensorData\n");
     free(sd->acc_x);
     free(sd->acc_y);
     free(sd->acc_z);
@@ -734,7 +734,7 @@ void freeSensorData(SensorData* sd) {
     free(sd->gyr_z);
 
     free(sd);
-    printf("libera correctamente\n");
+    // printf("libera correctamente\n");
 }
 
 // Realiza l lecturas de aceleración y giroscopio,
@@ -774,7 +774,7 @@ void lecture(SensorData *sd, int l) {
     uint16_t gyr_z;
 
     for (int i=0; i<l; i++) {
-        printf("iteración %d\n", i+1);
+        // printf("iteración %d\n", i+1);
 
         // cuando un dato del acelerómetro es read out
         bmi_read(&reg_intstatus, &tmp, 1);
@@ -796,17 +796,16 @@ void lecture(SensorData *sd, int l) {
             ret = bmi_read(&addr_acc_z_lsb, &tmp, 1);
             acc_z = (acc_z << 8) | tmp;
 
-            printf("acc_x: %f g\n", (int16_t)acc_x * (8.000 / 32768));
-            printf("acc_y: %f g\n", (int16_t)acc_y * (8.000 / 32768));
-            printf("acc_z: %f g\n\n", (int16_t)acc_z * (8.000 / 32768));
+            // printf("acc_x: %f g\n", (int16_t)acc_x * (8.000 / 32768));
+            // printf("acc_y: %f g\n", (int16_t)acc_y * (8.000 / 32768));
+            // printf("acc_z: %f g\n\n", (int16_t)acc_z * (8.000 / 32768));
 
-            // TODO: acá se guarda el valor bruto y no el valor printeado
-            sd->acc_x[i] = acc_x;
-            sd->acc_y[i] = acc_y;
-            sd->acc_z[i] = acc_z;
+            sd->acc_x[i] = (float)((int16_t)acc_x * (8.000 / 32768));
+            sd->acc_y[i] = (float)((int16_t)acc_y * (8.000 / 32768));
+            sd->acc_z[i] = (float)((int16_t)acc_z * (8.000 / 32768));
         
             if (ret != ESP_OK) {
-                printf("Error lectura: %s \n", esp_err_to_name(ret));
+                // printf("Error lectura: %s \n", esp_err_to_name(ret));
             }
         }
 
@@ -832,9 +831,9 @@ void lecture(SensorData *sd, int l) {
             gyr_z = (gyr_z << 8) | tmp;
 
             // TODO: hay que dejar bien la unidad de medida
-            printf("gyr_x: %d \n", gyr_x);
-            printf("gyr_y: %d \n", gyr_y);
-            printf("gyr_z: %d \n\n", gyr_z);
+            // printf("gyr_x: %d \n", gyr_x);
+            // printf("gyr_y: %d \n", gyr_y);
+            // printf("gyr_z: %d \n\n", gyr_z);
 
             // printf("justo después de imprimir giroscopio iteración %d\n", i+1);
 
@@ -845,7 +844,7 @@ void lecture(SensorData *sd, int l) {
             // printf("justo después de asignar variables en la memoria it %d\n", i+1);
             
             if (ret != ESP_OK) {
-                printf("Error lectura: %s \n", esp_err_to_name(ret));
+                // printf("Error lectura: %s \n", esp_err_to_name(ret));
             }
 
             // printf("justo después de chequear si hay error de lectura\n");
@@ -865,12 +864,13 @@ void lecture(SensorData *sd, int l) {
 int wait_response(void) {
     // Waiting for an BEGIN0, BEGIN1, or BEGIN2 to initialize data sending
     char dataResponse[7];
-    printf("Beginning initialization... \n");
     while (1) {
         int rLen = serial_read(dataResponse, 7);
         if (rLen > 0) {
-            if (strcmp(dataResponse, "BEGIN1") == 0) 
+            if (strcmp(dataResponse, "BEGIN1") == 0) {
+                uart_write_bytes(UART_NUM, "OK\n", 4);
                 return 1;
+            }
             if (strcmp(dataResponse, "BEGIN2") == 0)
                 return 2;
             if (strcmp(dataResponse, "BEGIN3") == 0)
@@ -887,7 +887,7 @@ void send_data_UART(SensorData *sd) {
 
     // float data[variables * window_size];
 
-    float data[3];
+    float data[variables];
         
     // for (int i=0; i<window_size; i++) {
 
@@ -903,13 +903,15 @@ void send_data_UART(SensorData *sd) {
         data[1] = (float)sd->acc_y[0];
         data[2] = (float)sd->acc_z[0];
 
-        // data[3] = (float)sd->gyr_x[0];
-        // data[4] = (float)sd->gyr_y[0];
-        // data[5] = (float)sd->gyr_z[0];
+        data[3] = (float)sd->gyr_x[0];
+        data[4] = (float)sd->gyr_y[0];
+        data[5] = (float)sd->gyr_z[0];
+
+        // 1 float son 4 bytes. el buffer size de UART está definido en 256 bytes
 
         const char* data_to_send = (const char*)data;
 
-        int len = sizeof(float)*3;
+        int len = sizeof(float)*variables;
         // int len = sizeof(float)*variables;
 
         uart_write_bytes(UART_NUM, data_to_send, len);
@@ -959,25 +961,25 @@ void app_main(void) {
     // Rutinario
 
     // Espera respuesta
-    printf("espera respuesta del PC\n");
+    // printf("espera respuesta del PC\n");
     int r = wait_response();
-    printf("La respuesta del PC fue %d\n", r);
+    // printf("La respuesta del PC fue %d\n", r);
 
     if (r == 1) {
-        printf("Comienza lectura\n\n");
+        // printf("Comienza lectura\n\n");
         SensorData* sd = createSensorData(window_size);
         lecture(sd, window_size);
-        printf("sale de la función lecture\n");
+        // printf("sale de la función lecture\n");
 
-        printf("comienza enviado de ventana\n");
+        // printf("comienza enviado de ventana\n");
         send_data_UART(sd);
-        printf("sale de función send_data_UART\n");
+        // printf("sale de función send_data_UART\n");
 
         
         // printf("Comprobación del primer valor de la ventana guardado\n");
-        // printf("acc_x: %f g\n", (int16_t)sd->acc_x[0] * (8.000 / 32768));
-        // printf("acc_y: %f g\n", (int16_t)sd->acc_y[0] * (8.000 / 32768));
-        // printf("acc_z: %f g\n\n", (int16_t)sd->acc_z[0] * (8.000 / 32768));
+        // printf("acc_x: %f g\n", sd->acc_x[0]);
+        // printf("acc_y: %f g\n", sd->acc_y[0]);
+        // printf("acc_z: %f g\n\n", sd->acc_z[0]);
 
         // printf("Comprobación del último valor de la ventana guardado\n");
         // printf("acc_x: %f g\n", (int16_t)sd->acc_x[window_size-1] * (8.000 / 32768));
@@ -987,6 +989,6 @@ void app_main(void) {
 
         // Se libera memoria
         freeSensorData(sd);
-        printf("sale de freeSensorData\n");
+        // printf("sale de freeSensorData\n");
     }
 }
