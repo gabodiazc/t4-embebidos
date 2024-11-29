@@ -637,21 +637,10 @@ void lectura(void) {
     uint8_t addr_acc_z_lsb = 0x10;
     uint8_t addr_acc_z_msb = 0x11;
 
-    uint8_t addr_gyr_x_lsb = 0x12;
-    uint8_t addr_gyr_x_msb = 0x13;
-    uint8_t addr_gyr_y_lsb = 0x14;
-    uint8_t addr_gyr_y_msb = 0x15;
-    uint8_t addr_gyr_z_lsb = 0x16;
-    uint8_t addr_gyr_z_msb = 0x17;
-
     // Variables a almacenar el dato crudo de la aceleración
     uint16_t acc_x;
     uint16_t acc_y;
     uint16_t acc_z;
-
-    uint16_t gyr_x;
-    uint16_t gyr_y;
-    uint16_t gyr_z;
 
     while (1) {
         // Se hace la lectura del status del sensor (reg_intstatus)
@@ -679,30 +668,6 @@ void lectura(void) {
             printf("acc_x: %f g\n", (int16_t)acc_x * (8.000 / 32768));
             printf("acc_y: %f g\n", (int16_t)acc_y * (8.000 / 32768));
             printf("acc_z: %f g\n\n", (int16_t)acc_z * (8.000 / 32768));
-
-            if (ret != ESP_OK) {
-                printf("Error lectura: %s \n", esp_err_to_name(ret));
-            }
-        }
-        if ((tmp & 0b01000000) == 0b01000000) {
-            ret = bmi_read(&addr_gyr_x_msb, &tmp, 1);
-            gyr_x = tmp;
-            ret = bmi_read(&addr_gyr_x_lsb, &tmp, 1);
-            gyr_x = (gyr_x << 8) | tmp;
-
-            ret = bmi_read(&addr_gyr_y_msb, &tmp, 1);
-            gyr_y = tmp;
-            ret = bmi_read(&addr_gyr_y_lsb, &tmp, 1);
-            gyr_y = (gyr_y << 8) | tmp;
-
-            ret = bmi_read(&addr_gyr_z_msb, &tmp, 1);
-            gyr_z = tmp;
-            ret = bmi_read(&addr_gyr_z_lsb, &tmp, 1);
-            gyr_z = (gyr_z << 8) | tmp;
-
-            printf("gyr_x: %f g\n", (int16_t)gyr_x * (8.000 / 32768));
-            printf("gyr_y: %f g\n", (int16_t)gyr_y * (8.000 / 32768));
-            printf("gyr_z: %f g\n\n", (int16_t)gyr_z * (8.000 / 32768));
 
             if (ret != ESP_OK) {
                 printf("Error lectura: %s \n", esp_err_to_name(ret));
