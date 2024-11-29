@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import *
 from typing import List
 import time
 import serial
+import pyqtgraph as pg
 
 # Se configura el puerto y el BAUD_Rate
 PORT = 'COM3'  # Esto depende del sistema operativo
@@ -132,6 +133,11 @@ def button1click():
     receive_window_data()
     send_end_message()
     
+    n = [i for i in range(window_size)]
+    graph.plot(n, n)
+    layout.addWidget(graph)
+    graph.show()
+
     layout.addWidget(menubutton)
     menubutton.show()
 
@@ -178,6 +184,8 @@ def buttonmenuclick():
     windowinput.hide()
     layout.removeWidget(windowbutton)
     windowbutton.hide()
+    layout.removeWidget(graph)
+    graph.hide()
     layout.addWidget(button1)
     layout.addWidget(button2)
     layout.addWidget(button3)
@@ -198,7 +206,7 @@ receive_window_size()
 
 ser = serial.Serial(PORT, BAUD_RATE, timeout = 1)
 
-window_size = 0
+window_size = 10
 
 app = QApplication([])
 
@@ -216,6 +224,7 @@ menubutton.clicked.connect(buttonmenuclick)
 windowinput = QLineEdit()
 windowbutton = QPushButton("Enviar ventana")
 windowbutton.clicked.connect(button2click2)
+graph = pg.PlotWidget()
 
 
 layout = QVBoxLayout()
