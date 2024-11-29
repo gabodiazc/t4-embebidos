@@ -82,19 +82,19 @@ static void uart_setup() {
 }
 
 // Write message through UART_num with an \0 at the end
-// int serial_write(const char *msg, int len){
+int serial_write(const char *msg, int len){
 
-//     char *send_with_end = (char *)malloc(sizeof(char) * (len + 1));
-//     memcpy(send_with_end, msg, len);
-//     send_with_end[len] = '\0';
+    char *send_with_end = (char *)malloc(sizeof(char) * (len + 1));
+    memcpy(send_with_end, msg, len);
+    send_with_end[len] = '\0';
 
-//     int result = uart_write_bytes(UART_NUM, send_with_end, len+1);
+    int result = uart_write_bytes(UART_NUM, send_with_end, len+1);
 
-//     free(send_with_end);
+    free(send_with_end);
 
-//     vTaskDelay(pdMS_TO_TICKS(1000));  // Delay for 1 second
-//     return result;
-// }
+    vTaskDelay(pdMS_TO_TICKS(1000));  // Delay for 1 second
+    return result;
+}
 
 // Read UART_num for input with timeout of 1 sec
 int serial_read(char *buffer, int size){
@@ -706,7 +706,7 @@ void internal_status(void) {
     printf("Internal Status: %2X\n\n", tmp);
 }
 
-// Función que crea una estructura que guarda los datos tomados del sensor
+// Función que crea una estructura que guarda los datos que tomará el sensor
 SensorData* createSensorData(size_t window_size) {
     SensorData* sd = (SensorData*)malloc(sizeof(SensorData));
 
@@ -852,7 +852,7 @@ void lecture(SensorData *sd, int l) {
         }
     }
 
-    // printf("antes de retornar\n");
+    // printf("antes de readline\n");
     return;
 }
 
@@ -882,8 +882,39 @@ int wait_response(void) {
 }
 
 // Envía la data por UART al PC
-void send_data_UART(void) {
-    // En desarrollo
+void send_data_UART(SensorData *sd) {
+    int variables = 6;
+
+    // float data[variables * window_size];
+
+    float data[3];
+        
+    // for (int i=0; i<window_size; i++) {
+
+        // data[0] = sd->acc_x[i];
+        // data[1] = sd->acc_y[i];
+        // data[2] = sd->acc_z[i];
+
+        // data[3] = sd->gyr_x[i];
+        // data[4] = sd->gyr_y[i];
+        // data[5] = sd->gyr_z[i];
+
+        data[0] = (float)sd->acc_x[0];
+        data[1] = (float)sd->acc_y[0];
+        data[2] = (float)sd->acc_z[0];
+
+        // data[3] = (float)sd->gyr_x[0];
+        // data[4] = (float)sd->gyr_y[0];
+        // data[5] = (float)sd->gyr_z[0];
+
+        const char* data_to_send = (const char*)data;
+
+        int len = sizeof(float)*3;
+        // int len = sizeof(float)*variables;
+
+        uart_write_bytes(UART_NUM, data_to_send, len);
+        vTaskDelay(pdMS_TO_TICKS(1000));  // Delay for 1 second
+    // }
 }
 
 void bmipowermode(void) {
@@ -932,12 +963,30 @@ void app_main(void) {
     int r = wait_response();
     printf("La respuesta del PC fue %d\n", r);
 
-    printf("Comienza lectura\n\n");
-    SensorData* sd = createSensorData(window_size);
-    lecture(sd, window_size);
-    printf("sale de la función lecture\n");
-    
-    // Se libera memoria
-    freeSensorData(sd);
-    printf("sale de freeSensorData\n");
+    if (r == 1) {
+        printf("Comienza lectura\n\n");
+        SensorData* sd = createSensorData(window_size);
+        lecture(sd, window_size);
+        printf("sale de la función lecture\n");
+
+        printf("comienza enviado de ventana\n");
+        send_data_UART(sd);
+        printf("sale de función send_data_UART\n");
+
+        
+        // printf("Comprobación del primer valor de la ventana guardado\n");
+        // printf("acc_x: %f g\n", (int16_t)sd->acc_x[0] * (8.000 / 32768));
+        // printf("acc_y: %f g\n", (int16_t)sd->acc_y[0] * (8.000 / 32768));
+        // printf("acc_z: %f g\n\n", (int16_t)sd->acc_z[0] * (8.000 / 32768));
+
+        // printf("Comprobación del último valor de la ventana guardado\n");
+        // printf("acc_x: %f g\n", (int16_t)sd->acc_x[window_size-1] * (8.000 / 32768));
+        // printf("acc_y: %f g\n", (int16_t)sd->acc_y[window_size-1] * (8.000 / 32768));
+        // printf("acc_z: %f g\n\n", (int16_t)sd->acc_z[window_size-1] * (8.000 / 32768));
+
+
+        // Se libera memoria
+        freeSensorData(sd);
+        printf("sale de freeSensorData\n");
+    }
 }

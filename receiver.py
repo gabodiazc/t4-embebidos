@@ -1,11 +1,10 @@
 import serial
 from struct import pack, unpack
+import time
 
 # Se configura el puerto y el BAUD_Rate
 PORT = '/dev/ttyUSB0'  # Esto depende del sistema operativo
 BAUD_RATE = 115200  # Debe coincidir con la configuracion de la ESP32
-
-window_size = 5
 
 # Se abre la conexion serial
 try:
@@ -26,12 +25,14 @@ def receive_response():
     return response
 
 def receive_data():
-    """ Funcion que recibe tres floats (fff) de la ESP32 
+    """ Funcion que recibe varios floats de la ESP32 
     y los imprime en consola """
     data = receive_response()
-    print(f"Data = {data}")
     data = unpack("fff", data)
-    print(f'Received: {data}')
+
+    # print(f'Received gyr_x: {data[3]}')
+    # print(f'Received gyr_y: {data[4]}')
+    # print(f'Received gyr_z: {data[5]}')
     return data
 
 def send_end_message():
@@ -54,11 +55,31 @@ while True:
 
         elif option == 1:
             # Para pedir una ventana de datos
-            message = pack('7s','BEGIN1\0'.encode())
-
             # Envía mensaje de 'quiero esta opción'
+            message = pack('7s','BEGIN1\0'.encode())
             send_message(message)
-            
+            # time.sleep(1)
+
+            while True:
+                # Pasa a recibir datos
+                if ser.in_waiting > 0:
+                    try:
+                        message = receive_data()
+                    except:
+                        print('Error en leer mensaje')
+                        continue
+                    else:
+                        print(f'Received acc_x: {message[0]}')
+                        print(f'Received acc_y: {message[1]}')
+                        print(f'Received acc_z: {message[2]}')
+                        print()
+                        counter += 1
+                        print(counter)
+                    finally:
+                        if counter == 1:
+                            print('Lecturas listas!')
+                            break
+
             break
 
         elif option == 2:
