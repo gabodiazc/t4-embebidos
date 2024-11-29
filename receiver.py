@@ -125,8 +125,6 @@ def button1click():
 
     message1 = pack('2s','1\0'.encode())
     send_message(message1)
-    print('Solicitando ventana de datos...')
-    print()
     time.sleep(1)
     message2 = pack('6s','BEGIN\0'.encode())
     send_message(message2)
