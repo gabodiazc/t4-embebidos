@@ -3,7 +3,7 @@ from struct import pack, unpack
 import time
 
 # Se configura el puerto y el BAUD_Rate
-PORT = '/dev/ttyUSB0'  # Esto depende del sistema operativo
+PORT = '/dev/ttyUSB1'  # Esto depende del sistema operativo
 BAUD_RATE = 115200  # Debe coincidir con la configuracion de la ESP32
 
 window_size = 10
@@ -91,13 +91,13 @@ def receive_window_data(win_size):
         # Pasa a recibir datos
         if ser.in_waiting > 0:
             try:
-                # message = receive_floats()
-                message = receive_data()
+                message = receive_floats()
+                # message = receive_data()
             except:
                 print('Error en leer mensaje')
                 continue
             else:
-                print(f'Lectura {counter+1} de tamaño {len(message)}')
+                print(f'Lectura {counter+1} de tamaño {len(message)} bytes')
                 for i in range(0, len(message)):
                     print(float(message[i]))
                 print()
@@ -109,7 +109,8 @@ def receive_window_data(win_size):
                 counter += 1
                 
             finally:
-                if counter == win_size:
+                if counter == win_size + 5:
+                    # ese 5 son los 5 top valores
                     print('Lecturas listas!')
                     break
 
@@ -133,7 +134,7 @@ while True:
 
         print(f"El tamaño actual de la ventana de datos es {window_size}")
         print("1. Solicitar ventana de datos del sensor")
-        print("2. Cambiar el tamaño de la ventana de datos")
+        print("2. Cambiar el tamaño de la ventana de datos. DEBE SER MAYOR O IGUAL A 5")
         print("3. Cerrar la conexión")
         option = int(input("Ingrese el número de la opción deseada: "))
 

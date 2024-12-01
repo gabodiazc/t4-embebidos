@@ -45,6 +45,13 @@ typedef struct {
     float *gyr_x;
     float *gyr_y;
     float *gyr_z;
+
+    float top5_acc_x[5];
+    float top5_acc_y[5];
+    float top5_acc_z[5];
+    float top5_gyr_x[5];
+    float top5_gyr_y[5];
+    float top5_gyr_z[5];
 } SensorData;
 
 esp_err_t ret = ESP_OK;
@@ -797,6 +804,34 @@ void internal_status(void) {
     // printf("Internal Status: %2X\n\n", tmp);
 }
 
+void find_top_5(float *data, int size, float *top_5) {
+    for (int i = 0; i < 5; i++) {
+        // Inicializa con el valor mínimo posible de float
+        top_5[i] = -__FLT_MAX__; 
+    }
+
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j < 5; j++) {
+            if (data[i] > top_5[j]) {
+                for (int k = 4; k > j; k--) {
+                    top_5[k] = top_5[k - 1];
+                }
+                top_5[j] = data[i];
+                break;
+            }
+        }
+    }
+}
+
+void find_top_5_applied(SensorData *sd, int win_size) {
+    find_top_5(sd->acc_x, win_size, sd->top5_acc_x);
+    find_top_5(sd->acc_y, win_size, sd->top5_acc_y);
+    find_top_5(sd->acc_z, win_size, sd->top5_acc_z);
+    find_top_5(sd->gyr_x, win_size, sd->top5_gyr_x);
+    find_top_5(sd->gyr_y, win_size, sd->top5_gyr_y);
+    find_top_5(sd->gyr_z, win_size, sd->top5_gyr_z);
+}
+
 // Función que crea una estructura que guarda los datos que tomará el sensor
 SensorData* createSensorData(size_t window_size) {
     SensorData* sd = (SensorData*)malloc(sizeof(SensorData));
@@ -988,7 +1023,7 @@ void send_data_UART(SensorData *sd) {
     float data[variables * window_size];
 
     for (int i=0; i<window_size; i++) {
-    // for (int i=0; i<2; i++) {
+        // Envío datos crudos
 
         data[0] = sd->acc_x[i];
         data[1] = sd->acc_y[i];
@@ -1016,6 +1051,23 @@ void send_data_UART(SensorData *sd) {
 
         // vTaskDelay(pdMS_TO_TICKS(1000));  // Delay for 1 second
     }
+
+    for (int i=0; i<5; i++) {
+        // Enviar los top 5 valores
+        data[0] = sd->top5_acc_x[i];
+        data[1] = sd->top5_acc_y[i];
+        data[2] = sd->top5_acc_z[i];
+        data[3] = sd->top5_gyr_x[i];
+        data[4] = sd->top5_gyr_y[i];
+        data[5] = sd->top5_gyr_z[i];
+
+        const char* top5_data_to_send = (const char*)data;
+        int top5_len = sizeof(float) * variables;
+        uart_write_bytes(UART_NUM, top5_data_to_send, top5_len);
+        wait_OK();
+    }
+    
+    
 }
 
 void send_window_size(void) {
@@ -1088,6 +1140,11 @@ void app_main(void) {
             int win_size_nvs = read_nvs_value();
             SensorData* sd = createSensorData(win_size_nvs);
             lecture(sd, win_size_nvs);
+
+            find_top_5_applied(sd, win_size_nvs);
+
+
+    
             send_data_UART(sd);
             // printf("sale de función send_data_UART\n");
 
@@ -1101,6 +1158,11 @@ void app_main(void) {
             //     printf("gyr_y: %f \n", sd->gyr_y[i]);
             //     printf("gyr_z: %f \n\n", sd->gyr_z[i]);
             // }
+
+
+
+
+
 
             // Se libera memoria
             freeSensorData(sd);
