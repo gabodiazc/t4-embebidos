@@ -7,6 +7,8 @@
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "esp_task.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 #include "math.h"
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
@@ -32,7 +34,7 @@
 #define REDIRECT_LOGS 1 // if redirect ESP log to another UART
 
 // Tamaño ventana
-int window_size = 5;
+int window_size = 10;
 
 // Estructura donde serán almacenados los datos.
 typedef struct {
@@ -102,7 +104,96 @@ int serial_read(char *buffer, int size){
     return len;
 }
 
-// -------------------- NVS ------------------------//
+// Lee el valor guardado en la NVS. Si la NVS está dañada
+// o no hay valor, retorna window_size
+int read_nvs_value() {
+    esp_err_t err;
+
+    // Iniciar la NVS
+    err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        // Si la partición NVS está dañada o se ha actualizado, hay que formatearla
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(err);
+
+    // Abre el manejador de NVS para leer o escribir en la NVS
+    nvs_handle_t nvs_handle;
+    err = nvs_open("storage", NVS_READWRITE, &nvs_handle);
+    if (err != ESP_OK) {
+        // printf("Error abriendo NVS!\n");
+    } 
+    else {
+        // Intenta leer el valor de "window_size" almacenado en la NVS
+        int32_t value = 0;  // Temporal para el valor almacenado
+        err = nvs_get_i32(nvs_handle, "window_size", &value);
+        
+        if (err == ESP_OK) {
+            window_size = value;
+            // printf("Valor de 'window_size' leído de la NVS: %d\n", window_size);
+        } 
+        else if (err == ESP_ERR_NVS_NOT_FOUND) {
+            // printf("No se encontró el valor en la NVS, asignando valor por defecto: %d\n", window_size);
+            // Guarda el valor por defecto en la NVS
+            err = nvs_set_i32(nvs_handle, "window_size", window_size);
+            if (err == ESP_OK) {
+                err = nvs_commit(nvs_handle);  // Asegúrate de que se escriban los cambios
+                if (err == ESP_OK) {
+                    // printf("Valor por defecto almacenado en la NVS\n");
+                }
+            }
+        } 
+        else {
+            // printf("Error leyendo el valor de 'window_size' de la NVS!\n");
+        }
+
+        // Cerrar el manejador de NVS
+        nvs_close(nvs_handle);
+    }
+    return window_size;
+}
+
+// Modifica el valor de la NVS por el int new_value
+void modify_nvs_value(int new_value) {
+    esp_err_t err;
+
+    // Iniciar la NVS
+    err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        // Si la partición NVS está dañada o se ha actualizado, hay que formatearla
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(err);
+
+    // Abre el manejador de NVS para leer o escribir en la NVS
+    nvs_handle_t nvs_handle;
+    err = nvs_open("storage", NVS_READWRITE, &nvs_handle);
+    if (err != ESP_OK) {
+        // printf("Error abriendo NVS!\n");
+    } 
+    else {
+        // Modifica el valor de "window_size" en la NVS
+        err = nvs_set_i32(nvs_handle, "window_size", new_value);
+        if (err == ESP_OK) {
+            // Guarda los cambios en la NVS
+            err = nvs_commit(nvs_handle);
+            if (err == ESP_OK) {
+                // printf("Valor de 'window_size' modificado a: %d\n", new_value);
+            } 
+            else {
+                // printf("Error guardando los cambios en la NVS!\n");
+            }
+        } 
+        else {
+            // printf("Error modificando el valor de 'window_size' en la NVS!\n");
+        }
+
+        // Cierra el manejador de NVS
+        nvs_close(nvs_handle);
+    }
+}
 
 /*! @name  Global array that stores the configuration file of BMI270 */
 const uint8_t bmi270_config_file[] = {
@@ -703,7 +794,7 @@ void internal_status(void) {
 
     bmi_read(&reg_internalstatus, &tmp, 1);
     // printf("Initial status: %x \n",(tmp & 0b00001111));
-    printf("Internal Status: %2X\n\n", tmp);
+    // printf("Internal Status: %2X\n\n", tmp);
 }
 
 // Función que crea una estructura que guarda los datos que tomará el sensor
@@ -737,7 +828,7 @@ void freeSensorData(SensorData* sd) {
     // printf("libera correctamente\n");
 }
 
-// Realiza l lecturas de aceleración y giroscopio,
+// Realiza l lecturas de aceleración y giroscopio
 // en los ejes x, y, z
 void lecture(SensorData *sd, int l) {
     // tmp: variable temporal donde se guarda la lectura del BMI. 
@@ -796,9 +887,9 @@ void lecture(SensorData *sd, int l) {
             ret = bmi_read(&addr_acc_z_lsb, &tmp, 1);
             acc_z = (acc_z << 8) | tmp;
 
-            // printf("acc_x: %f g\n", (int16_t)acc_x * (8.000 / 32768));
-            // printf("acc_y: %f g\n", (int16_t)acc_y * (8.000 / 32768));
-            // printf("acc_z: %f g\n\n", (int16_t)acc_z * (8.000 / 32768));
+            // printf("acc_x: %f g\n", (float)((int16_t)acc_x * (8.000 / 32768)));
+            // printf("acc_y: %f g\n", (float)((int16_t)acc_y * (8.000 / 32768)));
+            // printf("acc_z: %f g\n\n", (float)((int16_t)acc_z * (8.000 / 32768)));
 
             sd->acc_x[i] = (float)((int16_t)acc_x * (8.000 / 32768));
             sd->acc_y[i] = (float)((int16_t)acc_y * (8.000 / 32768));
@@ -831,15 +922,15 @@ void lecture(SensorData *sd, int l) {
             gyr_z = (gyr_z << 8) | tmp;
 
             // TODO: hay que dejar bien la unidad de medida
-            // printf("gyr_x: %d \n", gyr_x);
-            // printf("gyr_y: %d \n", gyr_y);
-            // printf("gyr_z: %d \n\n", gyr_z);
+            // printf("gyr_x: %f \n", (float)gyr_x);
+            // printf("gyr_y: %f \n", (float)gyr_y);
+            // printf("gyr_z: %f \n\n", (float)gyr_z);
 
             // printf("justo después de imprimir giroscopio iteración %d\n", i+1);
 
-            sd->gyr_x[i] = gyr_x;
-            sd->gyr_y[i] = gyr_y;
-            sd->gyr_z[i] = gyr_z;
+            sd->gyr_x[i] = (float)gyr_x;
+            sd->gyr_y[i] = (float)gyr_y;
+            sd->gyr_z[i] = (float)gyr_z;
 
             // printf("justo después de asignar variables en la memoria it %d\n", i+1);
             
@@ -855,68 +946,96 @@ void lecture(SensorData *sd, int l) {
     return;
 }
 
-// Se queda esperando por una respuesta y retorna
+// Envía un OK al PC
+void send_OK() {
+    uart_write_bytes(UART_NUM, "OK\n", 4);
+}
+
+// Espera en busywait por un OK enviado desde el PC
+void wait_OK(void) {
+    char dataResponse[3];
+    while (1) {
+        int rLen = serial_read(dataResponse, 3);
+        if (rLen > 0) {
+            if (strcmp(dataResponse, "OK") == 0)
+                break;
+        }
+    }
+}
+
+// Se queda esperando por una respuesta del PC y retorna
 // en base a la respuesta que obtuvo:
 // Retorna 1 para tomar lecturas con la ventana actual y enviar datos
 // Retorna 2 para cambiar la ventana
 // Retorna 3 para cerrar la conexión
 // Retorna 4 para enviar el tamaño actual de la ventana
 int wait_response(void) {
-    // Waiting for an BEGIN0, BEGIN1, or BEGIN2 to initialize data sending
+    // Waiting for an BEGINX (with X any number) to initialize data sending
     char dataResponse[7];
     while (1) {
         int rLen = serial_read(dataResponse, 7);
-        if (rLen > 0) {
-            if (strcmp(dataResponse, "BEGIN1") == 0) {
-                uart_write_bytes(UART_NUM, "OK\n", 4);
-                return 1;
-            }
-            if (strcmp(dataResponse, "BEGIN2") == 0)
-                return 2;
-            if (strcmp(dataResponse, "BEGIN3") == 0)
-                return 3;
-            if (strcmp(dataResponse, "BEGIN4") == 0)
-                return 4;
+        if (rLen > 0 && strncmp(dataResponse, "BEGIN", 5) == 0) {
+            send_OK();
+            return dataResponse[5] - '0';
         }
     }
 }
 
-// Envía la data por UART al PC
+// Envía la data guardada en la memoria de la ESP32
+// por UART al PC
 void send_data_UART(SensorData *sd) {
     int variables = 6;
+    float data[variables * window_size];
 
-    // float data[variables * window_size];
+    for (int i=0; i<window_size; i++) {
+    // for (int i=0; i<2; i++) {
 
-    float data[variables];
-        
-    // for (int i=0; i<window_size; i++) {
+        data[0] = sd->acc_x[i];
+        data[1] = sd->acc_y[i];
+        data[2] = sd->acc_z[i];
 
-        // data[0] = sd->acc_x[i];
-        // data[1] = sd->acc_y[i];
-        // data[2] = sd->acc_z[i];
+        data[3] = sd->gyr_x[i];
+        data[4] = sd->gyr_y[i];
+        data[5] = sd->gyr_z[i];
 
-        // data[3] = sd->gyr_x[i];
-        // data[4] = sd->gyr_y[i];
-        // data[5] = sd->gyr_z[i];
-
-        data[0] = (float)sd->acc_x[0];
-        data[1] = (float)sd->acc_y[0];
-        data[2] = (float)sd->acc_z[0];
-
-        data[3] = (float)sd->gyr_x[0];
-        data[4] = (float)sd->gyr_y[0];
-        data[5] = (float)sd->gyr_z[0];
+        // data[0] = (float)sd->acc_x[0];
+        // data[1] = (float)sd->acc_y[0];
+        // data[2] = (float)sd->acc_z[0];
+        // data[3] = (float)sd->gyr_x[0];
+        // data[4] = (float)sd->gyr_y[0];
+        // data[5] = (float)sd->gyr_z[0];
 
         // 1 float son 4 bytes. el buffer size de UART está definido en 256 bytes
 
         const char* data_to_send = (const char*)data;
-
         int len = sizeof(float)*variables;
-        // int len = sizeof(float)*variables;
 
         uart_write_bytes(UART_NUM, data_to_send, len);
-        vTaskDelay(pdMS_TO_TICKS(1000));  // Delay for 1 second
-    // }
+
+        wait_OK();
+
+        // vTaskDelay(pdMS_TO_TICKS(1000));  // Delay for 1 second
+    }
+}
+
+void send_window_size(void) {
+    float data[1];
+    data[0] = (float)read_nvs_value();
+    const char* data_to_send = (const char*)data;
+    int len = sizeof(float);
+    uart_write_bytes(UART_NUM, data_to_send, len);
+}
+
+int receive_window_size(void) {
+    // Espera por la respuesta del PC
+    char dataResponse[4];
+    while (1) {
+        int rLen = serial_read(dataResponse, 4);
+        if (rLen > 0) {
+            int new_size = atoi(dataResponse);
+            return new_size;
+        }
+    }
 }
 
 void bmipowermode(void) {
@@ -947,9 +1066,7 @@ void bmipowermode(void) {
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 
-void app_main(void) {
-
-    // Rutinario
+void initialize_esp_bmi(void) {
     ESP_ERROR_CHECK(bmi_init());
     softreset();
     chipid();
@@ -958,37 +1075,49 @@ void app_main(void) {
     bmipowermode();
     internal_status();
     uart_setup();
-    // Rutinario
+}
 
-    // Espera respuesta
-    // printf("espera respuesta del PC\n");
-    int r = wait_response();
-    // printf("La respuesta del PC fue %d\n", r);
+void app_main(void) {
+    initialize_esp_bmi();
 
-    if (r == 1) {
-        // printf("Comienza lectura\n\n");
-        SensorData* sd = createSensorData(window_size);
-        lecture(sd, window_size);
-        // printf("sale de la función lecture\n");
+    while (1) {
+        // Espera respuesta
+        int r = wait_response();
 
-        // printf("comienza enviado de ventana\n");
-        send_data_UART(sd);
-        // printf("sale de función send_data_UART\n");
+        if (r == 1) {
+            int win_size_nvs = read_nvs_value();
+            SensorData* sd = createSensorData(win_size_nvs);
+            lecture(sd, win_size_nvs);
+            send_data_UART(sd);
+            // printf("sale de función send_data_UART\n");
 
-        
-        // printf("Comprobación del primer valor de la ventana guardado\n");
-        // printf("acc_x: %f g\n", sd->acc_x[0]);
-        // printf("acc_y: %f g\n", sd->acc_y[0]);
-        // printf("acc_z: %f g\n\n", sd->acc_z[0]);
+            // for (int i=0; i<window_size; i++) {
+            //     vTaskDelay(pdMS_TO_TICKS(500));  // Delay for 500ms
+            //     printf("Comprobación del los valores guardados de la ventana %d\n", i);
+            //     printf("acc_x: %f g\n", sd->acc_x[i]);
+            //     printf("acc_y: %f g\n", sd->acc_y[i]);
+            //     printf("acc_z: %f g\n\n", sd->acc_z[i]);
+            //     printf("gyr_x: %f \n", sd->gyr_x[i]);
+            //     printf("gyr_y: %f \n", sd->gyr_y[i]);
+            //     printf("gyr_z: %f \n\n", sd->gyr_z[i]);
+            // }
 
-        // printf("Comprobación del último valor de la ventana guardado\n");
-        // printf("acc_x: %f g\n", (int16_t)sd->acc_x[window_size-1] * (8.000 / 32768));
-        // printf("acc_y: %f g\n", (int16_t)sd->acc_y[window_size-1] * (8.000 / 32768));
-        // printf("acc_z: %f g\n\n", (int16_t)sd->acc_z[window_size-1] * (8.000 / 32768));
+            // Se libera memoria
+            freeSensorData(sd);
+        }
+        else if (r == 2) {
+            // Recibe valor desde PC y modifica valor de la NVS
+            int new_size = receive_window_size();
+            modify_nvs_value(new_size);
+            send_OK();
+        }
+        else if (r == 3) {
+            // Corte de comunicación
 
-
-        // Se libera memoria
-        freeSensorData(sd);
-        // printf("sale de freeSensorData\n");
+        }
+        else if (r == 4){
+            // Envía el valor actual de la NVS
+            send_window_size();
+        }
     }
 }
