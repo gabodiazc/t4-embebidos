@@ -1065,29 +1065,15 @@ void lecture(SensorData *sd, int l) {
             ret = bmi_read(&addr_gyr_z_lsb, &tmp, 1);
             gyr_z = (gyr_z << 8) | tmp;
 
-            // TODO: hay que dejar bien la unidad de medida
-            // printf("gyr_x: %f \n", (float)gyr_x);
-            // printf("gyr_y: %f \n", (float)gyr_y);
-            // printf("gyr_z: %f \n\n", (float)gyr_z);
+            sd->gyr_x[i] = (float)(gyr_x * (34.90659/32768));
+            sd->gyr_y[i] = (float)(gyr_y * (34.90659/32768));
+            sd->gyr_z[i] = (float)(gyr_z * (34.90659/32768));
 
-            // printf("justo después de imprimir giroscopio iteración %d\n", i+1);
-
-            sd->gyr_x[i] = (float)gyr_x;
-            sd->gyr_y[i] = (float)gyr_y;
-            sd->gyr_z[i] = (float)gyr_z;
-
-            // printf("justo después de asignar variables en la memoria it %d\n", i+1);
-            
             if (ret != ESP_OK) {
                 // printf("Error lectura: %s \n", esp_err_to_name(ret));
             }
-
-            // printf("justo después de chequear si hay error de lectura\n");
         }
     }
-
-    // printf("antes de readline\n");
-    return;
 }
 
 // Envía un OK al PC
@@ -1233,6 +1219,7 @@ void bmipowermode(void) {
     // 400Hz en datos acc, filter: performance optimized, acc_range +/-8g (1g = 9.80665 m/s2, alcance max: 78.4532 m/s2, 16 bit= 65536 => 1bit = 78.4532/32768 m/s2)
     uint8_t reg_pwr_ctrl = 0x7D, val_pwr_ctrl = 0x06; // se cambió de 0x04 a 0x06
     uint8_t reg_acc_conf = 0x40, val_acc_conf;
+    uint8_t reg_gyr_conf = 0x42, val_gyr_conf = 0x0B; // 0x0B 800 Hz
     uint8_t reg_pwr_conf = 0x7C, val_pwr_conf = 0x00;
 
     // 0xA8 100hz, 0xA9 para 200Hz, 0xAA 400hz, 0xAB 800hz, 0xAC 1600hz
@@ -1250,6 +1237,7 @@ void bmipowermode(void) {
     };
 
     bmi_write(&reg_pwr_ctrl, &val_pwr_ctrl, 1);
+    bmi_write(&reg_gyr_conf, &val_gyr_conf, 1);
     bmi_write(&reg_acc_conf, &val_acc_conf, 1);
     bmi_write(&reg_pwr_conf, &val_pwr_conf, 1);
 
