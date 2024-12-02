@@ -38,20 +38,49 @@ int window_size = 10;
 
 // Estructura donde serán almacenados los datos.
 typedef struct {
+    // Datos postprocesados del sensor 
+    // (ya se le aplicó el factor de conversión)
     float *acc_x;
     float *acc_y;
     float *acc_z;
-
     float *gyr_x;
     float *gyr_y;
     float *gyr_z;
 
+    // Cinco mayores valores
     float top5_acc_x[5];
     float top5_acc_y[5];
     float top5_acc_z[5];
     float top5_gyr_x[5];
     float top5_gyr_y[5];
     float top5_gyr_z[5];
+
+    // FFT valor real e imaginario
+    float *fft_re_acc_x;
+    float *fft_im_acc_x;
+
+    float *fft_re_acc_y;
+    float *fft_im_acc_y;
+
+    float *fft_re_acc_z;
+    float *fft_im_acc_z;
+
+    float *fft_re_gyr_x;
+    float *fft_im_gyr_x;
+    
+    float *fft_re_gyr_y;
+    float *fft_im_gyr_y;
+
+    float *fft_re_gyr_z;
+    float *fft_im_gyr_z;
+    
+    // RMS 
+    float rms_acc_x;
+    float rms_acc_y;
+    float rms_acc_z;
+    float rms_gyr_x;
+    float rms_gyr_y;
+    float rms_gyr_z;
 } SensorData;
 
 esp_err_t ret = ESP_OK;
@@ -804,6 +833,8 @@ void internal_status(void) {
     // printf("Internal Status: %2X\n\n", tmp);
 }
 
+// Encuenta los 5 mayores valores en un arreglo de tamaño
+// size y los guarda en el arreglo top_5
 void find_top_5(float *data, int size, float *top_5) {
     for (int i = 0; i < 5; i++) {
         // Inicializa con el valor mínimo posible de float
@@ -832,25 +863,90 @@ void find_top_5_applied(SensorData *sd, int win_size) {
     find_top_5(sd->gyr_z, win_size, sd->top5_gyr_z);
 }
 
-// Función que crea una estructura que guarda los datos que tomará el sensor
-SensorData* createSensorData(size_t window_size) {
+// Calcula la FFT de un arreglo y guarda el resultado inplace
+//
+// array: Arreglo de elementos sobre los que se quiere calcular la FFT
+// size: Tamano del arreglo
+// array_re: Direccion del arreglo donde se guardara la parte real. Debe ser de tamano size
+// array_im: Direccion del arreglo donde se guardara la parte imaginaria. Debe ser de tamano size
+void calculate_fft(float *array, int size, float *array_re, float *array_im) {
+    for (int k = 0; k < size; k++) {
+        float real = 0;
+        float imag = 0;
+
+        for (int n = 0; n < size; n++) {
+            float angulo = 2 * M_PI * k * n / size;
+            float cos_angulo = cos(angulo);
+            float sin_angulo = -sin(angulo);
+
+            real += array[n] * cos_angulo;
+            imag += array[n] * sin_angulo;
+        }
+        real /= size;
+        imag /= size;
+        array_re[k] = real;
+        array_im[k] = imag;
+    }
+}
+
+void calculate_fft_applied(SensorData *sd, int win_size) {
+    calculate_fft(sd->acc_x, win_size, sd->fft_re_acc_x, sd->fft_im_acc_x);
+    calculate_fft(sd->acc_y, win_size, sd->fft_re_acc_y, sd->fft_im_acc_y);
+    calculate_fft(sd->acc_z, win_size, sd->fft_re_acc_z, sd->fft_im_acc_z);
+    calculate_fft(sd->gyr_x, win_size, sd->fft_re_gyr_x, sd->fft_im_gyr_x);
+    calculate_fft(sd->gyr_y, win_size, sd->fft_re_gyr_y, sd->fft_im_gyr_y);
+    calculate_fft(sd->gyr_z, win_size, sd->fft_re_gyr_z, sd->fft_im_gyr_z);
+}
+
+// Calcula el RMS de un arreglo y guarda el resultado en la dirección proporcionada
+void calculate_rms(float *array, int size, float *rms) {
+    float sum = 0;
+    for (int i = 0; i < size; i++) {
+        sum += pow(array[i], 2);
+    }
+    *rms = sqrt(sum / size);
+}
+
+void calculate_rms_applied(SensorData *sd, int win_size) {
+    calculate_rms(sd->acc_x, win_size, &sd->rms_acc_x);
+    calculate_rms(sd->acc_y, win_size, &sd->rms_acc_y);
+    calculate_rms(sd->acc_z, win_size, &sd->rms_acc_z);
+    calculate_rms(sd->gyr_x, win_size, &sd->rms_gyr_x);
+    calculate_rms(sd->gyr_y, win_size, &sd->rms_gyr_y);
+    calculate_rms(sd->gyr_z, win_size, &sd->rms_gyr_z);
+}
+
+// Crea una estructura que guardará los datos que tome el sensor
+SensorData* createSensorData(size_t win_size) {
     SensorData* sd = (SensorData*)malloc(sizeof(SensorData));
 
-    // Asignar memoria para cada eje
-    sd->acc_x = (float*)malloc(window_size * sizeof(float));
-    sd->acc_y = (float*)malloc(window_size * sizeof(float));
-    sd->acc_z = (float*)malloc(window_size * sizeof(float));
+    sd->acc_x = (float*)malloc(win_size * sizeof(float));
+    sd->acc_y = (float*)malloc(win_size * sizeof(float));
+    sd->acc_z = (float*)malloc(win_size * sizeof(float));
 
-    sd->gyr_x = (float*)malloc(window_size * sizeof(float));
-    sd->gyr_y = (float*)malloc(window_size * sizeof(float));
-    sd->gyr_z = (float*)malloc(window_size * sizeof(float));
+    sd->gyr_x = (float*)malloc(win_size * sizeof(float));
+    sd->gyr_y = (float*)malloc(win_size * sizeof(float));
+    sd->gyr_z = (float*)malloc(win_size * sizeof(float));
+
+    sd->fft_re_acc_x = (float*)malloc(win_size * sizeof(float));
+    sd->fft_re_acc_y = (float*)malloc(win_size * sizeof(float));
+    sd->fft_re_acc_z = (float*)malloc(win_size * sizeof(float));
+    sd->fft_re_gyr_x = (float*)malloc(win_size * sizeof(float));
+    sd->fft_re_gyr_y = (float*)malloc(win_size * sizeof(float));
+    sd->fft_re_gyr_z = (float*)malloc(win_size * sizeof(float));
+
+    sd->fft_im_acc_x = (float*)malloc(win_size * sizeof(float));
+    sd->fft_im_acc_y = (float*)malloc(win_size * sizeof(float));
+    sd->fft_im_acc_z = (float*)malloc(win_size * sizeof(float));
+    sd->fft_im_gyr_x = (float*)malloc(win_size * sizeof(float));
+    sd->fft_im_gyr_y = (float*)malloc(win_size * sizeof(float));
+    sd->fft_im_gyr_z = (float*)malloc(win_size * sizeof(float));
 
     return sd;
 }
 
 // Libera la memoria pedida por la estructura
 void freeSensorData(SensorData* sd) {
-    // printf("entra a freeSensorData\n");
     free(sd->acc_x);
     free(sd->acc_y);
     free(sd->acc_z);
@@ -859,8 +955,21 @@ void freeSensorData(SensorData* sd) {
     free(sd->gyr_y);
     free(sd->gyr_z);
 
+    free(sd->fft_re_acc_x);
+    free(sd->fft_re_acc_y);
+    free(sd->fft_re_acc_z);
+    free(sd->fft_re_gyr_x);
+    free(sd->fft_re_gyr_y);
+    free(sd->fft_re_gyr_z);
+
+    free(sd->fft_im_acc_x);
+    free(sd->fft_im_acc_y);
+    free(sd->fft_im_acc_z);
+    free(sd->fft_im_gyr_x);
+    free(sd->fft_im_gyr_y);
+    free(sd->fft_im_gyr_z);
+
     free(sd);
-    // printf("libera correctamente\n");
 }
 
 // Realiza l lecturas de aceleración y giroscopio
@@ -1018,42 +1127,31 @@ int wait_response(void) {
 
 // Envía la data guardada en la memoria de la ESP32
 // por UART al PC
-void send_data_UART(SensorData *sd) {
-    int variables = 6;
-    float data[variables * window_size];
+void send_data_UART(SensorData *sd, int win_size) {
+    // 12 es el tamaño máximo de ventana temporal que usaremos
+    float data[12];
 
-    for (int i=0; i<window_size; i++) {
-        // Envío datos crudos
-
+    for (int i=0; i<win_size; i++) {
+        // Primero llegan los datos crudos
         data[0] = sd->acc_x[i];
         data[1] = sd->acc_y[i];
         data[2] = sd->acc_z[i];
-
         data[3] = sd->gyr_x[i];
         data[4] = sd->gyr_y[i];
         data[5] = sd->gyr_z[i];
 
-        // data[0] = (float)sd->acc_x[0];
-        // data[1] = (float)sd->acc_y[0];
-        // data[2] = (float)sd->acc_z[0];
-        // data[3] = (float)sd->gyr_x[0];
-        // data[4] = (float)sd->gyr_y[0];
-        // data[5] = (float)sd->gyr_z[0];
-
-        // 1 float son 4 bytes. el buffer size de UART está definido en 256 bytes
-
+        // Obs: 1 float son 4 bytes. el buffer size 
+        // de UART está definido en 256 bytes
         const char* data_to_send = (const char*)data;
-        int len = sizeof(float)*variables;
-
+        int len = sizeof(float) * 6;
         uart_write_bytes(UART_NUM, data_to_send, len);
-
         wait_OK();
 
         // vTaskDelay(pdMS_TO_TICKS(1000));  // Delay for 1 second
     }
 
     for (int i=0; i<5; i++) {
-        // Enviar los top 5 valores
+        // Luego llegan 5 valores más grandes
         data[0] = sd->top5_acc_x[i];
         data[1] = sd->top5_acc_y[i];
         data[2] = sd->top5_acc_z[i];
@@ -1061,13 +1159,53 @@ void send_data_UART(SensorData *sd) {
         data[4] = sd->top5_gyr_y[i];
         data[5] = sd->top5_gyr_z[i];
 
-        const char* top5_data_to_send = (const char*)data;
-        int top5_len = sizeof(float) * variables;
-        uart_write_bytes(UART_NUM, top5_data_to_send, top5_len);
+        const char* data_to_send = (const char*)data;
+        int len = sizeof(float) * 6;
+        uart_write_bytes(UART_NUM, data_to_send, len);
         wait_OK();
     }
-    
-    
+
+    for (int i=0; i<win_size; i++) {
+        // Luego llega el conjunto de datos de la FFT
+        data[0] = sd->fft_re_acc_x[i];
+        data[1] = sd->fft_im_acc_x[i];
+
+        data[2] = sd->fft_re_acc_y[i];
+        data[3] = sd->fft_im_acc_y[i];
+
+        data[4] = sd->fft_re_acc_z[i];
+        data[5] = sd->fft_im_acc_z[i];
+
+        data[6] = sd->fft_re_gyr_x[i];
+        data[7] = sd->fft_im_gyr_x[i];
+        
+        data[8] = sd->fft_re_gyr_y[i];
+        data[9] = sd->fft_im_gyr_y[i];
+
+        data[10] = sd->fft_re_gyr_z[i];
+        data[11] = sd->fft_im_gyr_z[i];
+
+        const char* data_to_send = (const char*)data;
+        int len = sizeof(float) * 12;
+        uart_write_bytes(UART_NUM, data_to_send, len);
+        wait_OK();
+    }  
+
+    for (int i=0; i<1; i++) {
+        // Por último se envía la RMS para
+        // cada variable, es decir 6 valores
+        data[0] = sd->rms_acc_x;
+        data[1] = sd->rms_acc_y;
+        data[2] = sd->rms_acc_z;
+        data[3] = sd->rms_gyr_x;
+        data[4] = sd->rms_gyr_y;
+        data[5] = sd->rms_gyr_z;
+
+        const char* data_to_send = (const char*)data;
+        int len = sizeof(float) * 6;
+        uart_write_bytes(UART_NUM, data_to_send, len);
+        wait_OK();
+    }
 }
 
 void send_window_size(void) {
@@ -1140,29 +1278,12 @@ void app_main(void) {
             int win_size_nvs = read_nvs_value();
             SensorData* sd = createSensorData(win_size_nvs);
             lecture(sd, win_size_nvs);
-
+            
             find_top_5_applied(sd, win_size_nvs);
+            calculate_fft_applied(sd, win_size_nvs);
+            calculate_rms_applied(sd, win_size_nvs);
 
-
-    
-            send_data_UART(sd);
-            // printf("sale de función send_data_UART\n");
-
-            // for (int i=0; i<window_size; i++) {
-            //     vTaskDelay(pdMS_TO_TICKS(500));  // Delay for 500ms
-            //     printf("Comprobación del los valores guardados de la ventana %d\n", i);
-            //     printf("acc_x: %f g\n", sd->acc_x[i]);
-            //     printf("acc_y: %f g\n", sd->acc_y[i]);
-            //     printf("acc_z: %f g\n\n", sd->acc_z[i]);
-            //     printf("gyr_x: %f \n", sd->gyr_x[i]);
-            //     printf("gyr_y: %f \n", sd->gyr_y[i]);
-            //     printf("gyr_z: %f \n\n", sd->gyr_z[i]);
-            // }
-
-
-
-
-
+            send_data_UART(sd, win_size_nvs);
 
             // Se libera memoria
             freeSensorData(sd);

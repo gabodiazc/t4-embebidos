@@ -3,7 +3,7 @@ from struct import pack, unpack
 import time
 
 # Se configura el puerto y el BAUD_Rate
-PORT = '/dev/ttyUSB1'  # Esto depende del sistema operativo
+PORT = '/dev/ttyUSB0'  # Esto depende del sistema operativo
 BAUD_RATE = 115200  # Debe coincidir con la configuracion de la ESP32
 
 window_size = 10
@@ -28,11 +28,12 @@ def receive_data():
     response = ser.read_all()
     return response
 
-def receive_floats():
-    """ Funcion que recibe varios floats de la ESP32 
+def receive_floats(n):
+    """ Funcion que recibe n floats de la ESP32 
     y los imprime en consola """
     data = receive_data()
-    data = unpack("ffffff", data)
+    format_string = 'f' * n
+    data = unpack(format_string, data)
     return data
 
 def send_end_message():
@@ -88,16 +89,16 @@ def receive_window_data(win_size):
     time.sleep(0.5)
     counter = 0
     while True:
-        # Pasa a recibir datos
+        # Recibe dator brutos
         if ser.in_waiting > 0:
             try:
-                message = receive_floats()
+                message = receive_floats(6)
                 # message = receive_data()
             except:
                 print('Error en leer mensaje')
                 continue
             else:
-                print(f'Lectura {counter+1} de tamaño {len(message)} bytes')
+                print(f'Dato bruto {counter+1}')
                 for i in range(0, len(message)):
                     print(float(message[i]))
                 print()
@@ -109,9 +110,90 @@ def receive_window_data(win_size):
                 counter += 1
                 
             finally:
-                if counter == win_size + 5:
-                    # ese 5 son los 5 top valores
-                    print('Lecturas listas!')
+                if counter == win_size:
+                    print('Lecturas listas de datos brutos.')
+                    print()
+                    break
+    counter = 0
+    while True:
+        # Pasa a recibir datos
+        if ser.in_waiting > 0:
+            try:
+                message = receive_floats(6)
+                # message = receive_data()
+            except:
+                print('Error en leer mensaje')
+                continue
+            else:
+                print(f'Máximo valor {counter+1}')
+                for i in range(0, len(message)):
+                    print(float(message[i]))
+                print()
+                # Idea: que el time sleep sea adaptativo con el tamaño
+                # de ventana (ventana más grande = más demora en enviar)
+                time.sleep(0.6)
+                send_OK()
+                time.sleep(0.6)
+                counter += 1
+                
+            finally:
+                if counter == 5:
+                    print('Lecturas listas de los 5 max valores.')
+                    print()
+                    break
+    counter = 0
+    while True:
+        # Pasa a recibir datos
+        if ser.in_waiting > 0:
+            try:
+                message = receive_floats(12)
+                # message = receive_data()
+            except:
+                print('Error en leer mensaje')
+                continue
+            else:
+                print(f'Valores de FFT (Re Im Re Im ....)')
+                for i in range(0, len(message)):
+                    print(float(message[i]))
+                print()
+                # Idea: que el time sleep sea adaptativo con el tamaño
+                # de ventana (ventana más grande = más demora en enviar)
+                time.sleep(0.6)
+                send_OK()
+                time.sleep(0.6)
+                counter += 1
+                
+            finally:
+                if counter == win_size:
+                    print('Lecturas listas de FFT')
+                    print()
+                    break
+    counter = 0
+    while True:
+        # Pasa a recibir datos
+        if ser.in_waiting > 0:
+            try:
+                message = receive_floats(6)
+                # message = receive_data()
+            except:
+                print('Error en leer mensaje')
+                continue
+            else:
+                print(f'Valores RMS de cada variable')
+                for i in range(0, len(message)):
+                    print(float(message[i]))
+                print()
+                # Idea: que el time sleep sea adaptativo con el tamaño
+                # de ventana (ventana más grande = más demora en enviar)
+                time.sleep(0.6)
+                send_OK()
+                time.sleep(0.6)
+                counter += 1
+                
+            finally:
+                if counter == 1:
+                    print('Lecturas listas de RMS')
+                    print()
                     break
 
 def send_window_size(new_value):
