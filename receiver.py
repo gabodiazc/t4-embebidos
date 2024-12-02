@@ -282,6 +282,11 @@ def send_window_size(new_value):
     print("OK de NVS llegó\n")
     log_message(f'Valor NVS cambiado exitosamente a {new_value}.')
 
+def end_connection():
+    # Para pedir una ventana de datos
+    # Envía mensaje de 'quiero esta opción'
+    send_message(pack('7s','BEGIN3\0'.encode()))
+
 # ------------------- Código versión anterior ----------------------------
 # Se lee data por la conexion serial
 # while True:
@@ -312,6 +317,8 @@ def log_message(message):
 
 def button_request_window():
     receive_window_data(window_size)
+    graph.clear()
+    graph.addLegend()
     graph.plot(accel_x, pen=pg.mkPen('r', width=3), name='Accel X')
     graph.plot(accel_y, pen=pg.mkPen('g', width=3), name='Accel Y')
     graph.plot(accel_z, pen=pg.mkPen('b', width=3), name='Accel Z')
@@ -352,7 +359,9 @@ def button_return_main_menu():
     left_layout.addWidget(menubutton)
 
 def button_end_connection():
-    print("hol")
+    end_connection()
+    ser.close()
+    app.quit()
 
 window_size = receive_window_size()
 
@@ -385,6 +394,7 @@ acceptbutton.clicked.connect(button_accept_change_windowsize)
 
 graph = pg.PlotWidget()
 graph.setBackground('w')
+graph.setYRange(0, 100)
 
 log_widget = QTextEdit()
 log_widget.setReadOnly(True)

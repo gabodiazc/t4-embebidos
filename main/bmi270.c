@@ -1284,7 +1284,7 @@ void app_main(void) {
         }
         else if (r == 3) {
             // Corte de comunicación
-
+            esp_restart();
         }
         else if (r == 4){
             // Envía el valor actual de la NVS
